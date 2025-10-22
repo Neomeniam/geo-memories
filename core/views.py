@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -6,7 +6,7 @@ from django.db.models import Q, Count
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.forms import UserCreationForm
-from .models import Post, Topic, Comment
+from .models import Post, Topic, Comment, Like
 from .forms import PostForm, UserForm
 from django.http import JsonResponse
 from django.utils.timesince import timesince
@@ -61,10 +61,11 @@ def registerPage(request):
 def home(request):
     q = request.GET.get('q') if request.GET.get('q') != None else ''
 
+    # Optimized query using select_related and prefetch_related
     posts = Post.objects.filter(
         Q(topic__name__icontains=q)|
         Q(caption__icontains=q)
-    )
+    ).select_related('author', 'topic').prefetch_related('likes')
 
     topics = Topic.objects.all()[0:5]
     post_count = posts.count()
@@ -76,7 +77,10 @@ def home(request):
     return render(request, 'core/home.html', context)
 
 def post(request,pk):
-    post = Post.objects.get(id=pk)
+    # Use prefetch_related for efficiency even on a single object
+    post = get_object_or_404(Post.objects.prefetch_related(
+        'comments__author', 'likes'
+    ), id=pk)
     post_comments = post.comments.all()
 
     if request.method == 'POST':
@@ -92,7 +96,7 @@ def post(request,pk):
 
 def userProfile(request, pk):
     user = User.objects.get(id=pk)
-    posts = user.post_set.all()
+    posts = user.post_set.all().prefetch_related('likes')
     post_comments = user.comment_set.all()
     topics = Topic.objects.all()
     context = {'user': user, 'posts': posts, 'post_comments': post_comments,
@@ -150,6 +154,17 @@ def deletePost(request, pk):
         post.delete()
         return redirect('home')
     return render(request, 'core/delete.html', {'obj':post})
+
+@login_required(login_url='login')
+def like_post(request, post_id):
+    if request.method == 'POST':
+        post = get_object_or_404(Post, id=post_id)
+        like, created = Like.objects.get_or_create(user=request.user, post=post)
+
+        if not created:
+            # If the like already existed, delete it (unlike).
+            like.delete()
+    return redirect(request.META.get('HTTP_REFERER', 'home'))
 
 def map_page_view(request):
     """

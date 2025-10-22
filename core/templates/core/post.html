@@ -86,6 +86,29 @@
               </div> -->
               <span class="room__topics">{{post.topic}}</span>
             </div>
+            {% if request.user.is_authenticated %}
+              <div>
+                <span>{{ post.likes.count }} Likes</span>  
+                {# The form for liking/unliking a post #}
+                <form action="{% url 'like_post' post.id %}" method="POST" style="display: inline;">
+                  {% csrf_token %}
+  
+                  {# This is the efficient check to see if the user has liked the post #}
+                  {% with user_has_liked=False %}
+                    {% for like in post.likes.all %}
+                      {% if like.user == request.user %}
+                        {% with user_has_liked=True %}{% endwith %}
+                      {% endif %}
+                    {% endfor %}
+                    {% if user_has_liked %}
+                      <button type="submit">Unlike</button>
+                    {% else %}
+                      <button type="submit">Like</button>
+                    {% endif %}
+                  {% endwith %}
+                </form>
+              </div>
+            {% endif %}
             <div class="room__conversation">
               <div class="threads scroll">
                 {% for comment in post_comments %}

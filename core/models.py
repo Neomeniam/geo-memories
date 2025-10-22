@@ -24,8 +24,8 @@ class Post(models.Model):
     topic = models.ForeignKey(Topic, on_delete=models.SET_NULL, null=True)
     caption = models.TextField()
     photo = models.ImageField(upload_to='post_photos/', blank=True, null=True)
-    latitude = models.DecimalField(max_digits=99, decimal_places=15, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=99, decimal_places=15, null=True, blank=True)
+    latitude = models.DecimalField(max_digits=20, decimal_places=15, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=20, decimal_places=15, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
