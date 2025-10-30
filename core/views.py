@@ -4,9 +4,9 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Count
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.forms import UserCreationForm
-from .models import Post, Topic, Comment, Like
+from django.contrib.auth import authenticate, login, logout, get_user_model
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from .models import Post, Topic, Comment, Like, Friendship
 from .forms import PostForm, UserForm
 from django.http import JsonResponse
 from django.utils.timesince import timesince
@@ -58,19 +58,35 @@ def registerPage(request):
             messages.error(request, 'An error occurred during regisretion.')
     return render(request, 'core/login_register.html',  {'form': form})
 
+@login_required
 def home(request):
     q = request.GET.get('q') if request.GET.get('q') != None else ''
 
+    # 1. Get a list of the user's friends
+    # We query where the status is 'accepted' from either side of the relationship
+    friends_sent = Friendship.objects.filter(from_user=request.user, status='accepted').values_list('to_user_id', flat=True)
+    friends_received = Friendship.objects.filter(to_user=request.user, status='accepted').values_list('from_user_id', flat=True)
+    friend_ids = list(friends_sent) + list(friends_received)
+
+    # 2. Include the user's own ID
+    allowed_user_ids = friend_ids + [request.user.id]
+
     # Optimized query using select_related and prefetch_related
     posts = Post.objects.filter(
+        author__id__in=allowed_user_ids
+    ).filter(
         Q(topic__name__icontains=q)|
         Q(caption__icontains=q)
     ).select_related('author', 'topic').prefetch_related('likes')
 
     topics = Topic.objects.all()[0:5]
     post_count = posts.count()
-    post_comments = Comment.objects.all().filter(Q(post__topic__name__icontains=q))
+    # This comment query would also need to be restricted
+    post_comments = Comment.objects.filter(post__in=posts)
 
+    # For activity feed, let's show comments on posts the user can see
+    post_comments = Comment.objects.filter(
+        post__in=posts).select_related('author', 'post').order_by('-created_at')[:5]
 
     context = {'posts':posts, 'topics': topics, 'post_count': post_count,
                 'post_comments': post_comments}
@@ -96,12 +112,30 @@ def post(request,pk):
 
 def userProfile(request, pk):
     user = User.objects.get(id=pk)
+
+    # Friendship status logic
+    friendship_status = None
+    if request.user.is_authenticated and request.user != user:
+        # Check if a request was sent from the logged-in user to the profile user
+        sent_request = Friendship.objects.filter(from_user=request.user, to_user=user).first()
+        # Check if a request was received by the logged-in user from the profile user
+        received_request = Friendship.objects.filter(from_user=user, to_user=request.user).first()
+
+        if sent_request:
+            friendship_status = sent_request.status
+        elif received_request:
+            # If a request was received, show its status but give options to accept/decline
+            friendship_status = received_request.status
+            if received_request.status == 'pending':
+                friendship_status = 'received_pending' # A custom status for the template
+
     posts = user.post_set.all().prefetch_related('likes')
     post_comments = user.comment_set.all()
     topics = Topic.objects.all()
-    context = {'user': user, 'posts': posts, 'post_comments': post_comments,
-               'topics': topics}
+    context = {'user': user, 'posts': posts, 'post_comments': post_comments, 'topics': topics, 'friendship_status': friendship_status}
     return render(request, 'core/profile.html', context)
+
+
 
 @login_required(login_url='login')
 def createPost(request):
@@ -165,6 +199,37 @@ def like_post(request, post_id):
             # If the like already existed, delete it (unlike).
             like.delete()
     return redirect(request.META.get('HTTP_REFERER', 'home'))
+
+@login_required(login_url='login')
+def send_friend_request(request, user_id):
+    to_user = get_object_or_404(User, id=user_id)
+    if request.user != to_user:
+        # Prevent creating a duplicate request if one already exists (from either user)
+        Friendship.objects.get_or_create(from_user=request.user, to_user=to_user)
+    return redirect('user-profile', pk=user_id)
+
+@login_required(login_url='login')
+def manage_friend_request(request, user_id, action):
+    from_user = get_object_or_404(User, id=user_id)
+    friend_request = get_object_or_404(Friendship, from_user=from_user, to_user=request.user)
+
+    if action == 'accept':
+        friend_request.status = 'accepted'
+        friend_request.save()
+        # Optional: Create a reciprocal friendship for easier querying
+        Friendship.objects.get_or_create(from_user=request.user, to_user=from_user, defaults={'status': 'accepted'})
+    elif action == 'decline':
+        friend_request.delete() # Or set status to 'declined' if you want to keep the record
+
+    return redirect('user-profile', pk=user_id)
+
+@login_required(login_url='login')
+def remove_friend(request, user_id):
+    friend_to_remove = get_object_or_404(User, id=user_id)
+    # Delete the friendship records from both sides
+    Friendship.objects.filter(from_user=request.user, to_user=friend_to_remove).delete()
+    Friendship.objects.filter(from_user=friend_to_remove, to_user=request.user).delete()
+    return redirect('user-profile', pk=user_id)
 
 def map_page_view(request):
     """

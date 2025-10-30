@@ -58,3 +58,30 @@ class Like(models.Model):
 
     def __str__(self):
         return f'{self.user.username} likes {self.post}'
+
+class Friendship(models.Model):
+    """
+    Represents a friendship request and its status.
+    'from_user' is the person who sent the request.
+    'to_user' is the person who received the request.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DECLINED = 'declined'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DECLINED, 'Declined'),
+    ]
+
+    from_user = models.ForeignKey(User, related_name='friendship_requests_sent', on_delete=models.CASCADE)
+    to_user = models.ForeignKey(User, related_name='friendship_requests_received', on_delete=models.CASCADE)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('from_user', 'to_user')
+
+    def __str__(self):
+        return f'Request from {self.from_user.username} to {self.to_user.username} - {self.get_status_display()}'

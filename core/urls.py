@@ -17,6 +17,11 @@ urlpatterns = [
     # URL for the like/unlike functionality
     path('post/<int:post_id>/like/', views.like_post, name='like_post'),
 
+    # Friendship URLs
+    path('profile/<int:user_id>/add_friend/', views.send_friend_request, name='send_friend_request'),
+    path('profile/<int:user_id>/remove_friend/', views.remove_friend, name='remove_friend'),
+    path('profile/<int:user_id>/<str:action>/', views.manage_friend_request, name='manage_friend_request'),
+
     path('map/', views.map_page_view, name='map-page'),
     path('api/posts/', views.get_all_posts_api, name='api-get-posts'),
 ]
